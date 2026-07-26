@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+# b64 — encodeur/décodeur base64 en UTF-8, SANS dépendance (stdlib seule).
+#
+# Pourquoi : encoder/décoder du texte (accents, emoji, —, ↦, M⁻¹…) de façon
+# FIABLE et LOCALEMENT. Le base64 est mono-ligne et alphanumérique : il se
+# transporte/colle sans perdre de retours à la ligne (contrairement au texte
+# brut ou aux heredoc sur Termux).
+#
+# Règle d'or (cohérente avec la discipline du projet) : le RÉSULTAT va sur
+# stdout, PUR (donc pipable / copiable tel quel, ex: b64 enc -f x > x.b64).
+# Les STATS de vérification (nb de lignes / bytes) vont sur stderr : c'est un
+# FILET intégré — on voit tout de suite si le compte de lignes colle, sans
+# polluer la sortie qu'on copie.
+#
+# Modes d'entrée (enc et dec) : -t TEXTE  |  -f FICHIER  |  stdin (pipe)
+# Mode interactif : lancer sans argument -> menu (fin de saisie = ligne '.'
+# seule, ou Ctrl-D).
+import base64, sys, argparse, binascii
+
+ENC = "utf-8"  # le texte est toujours lu/écrit en UTF-8 (gère le multi-octets)
+
+
+def _wclines(s):
+    # Compte de lignes "style wc -l" (= nombre de '\n'), pour cohérence avec
+    # l'outil qu'on a utilisé toute la session.
+    return s.count("\n")
+
+
+def _read(path):
+    with open(path, "r", encoding=ENC) as f:
+        return f.read()
+
+
+def _get_input(args):
+    if args.file:
+        return _read(args.file)
+    if args.text is not None:
+        return args.text
+    return sys.stdin.read()
+
+
+def encode_text(text, wrap=0):
+    raw = text.encode(ENC)
+    b = base64.b64encode(raw).decode("ascii")
+    if wrap and wrap > 0:
+        b = "\n".join(b[i:i + wrap] for i in range(0, len(b), wrap))
+    return b, len(raw)
+
+
+def decode_text(b64):
+    # On retire TOUS les espaces/retours à la ligne : tolère un base64 recollé
+    # en plusieurs morceaux ou mis en forme sur plusieurs lignes.
+    clean = "".join(b64.split())
+    # validate=True : après nettoyage, tout caractère hors alphabet base64 est
+    # une VRAIE erreur (ex: un 'é' glissé par erreur) -> message clair.
+    raw = base64.b64decode(clean, validate=True)
+    try:
+        text = raw.decode(ENC)
+    except UnicodeDecodeError as e:
+        raise ValueError(f"le base64 décodé n'est pas du {ENC} valide : {e}") from e
+    return text, len(raw)
+
+
+def _emit(s):
+    # Écrit le résultat EXACT ; n'ajoute un '\n' de confort QUE si stdout est
+    # un terminal (sinon, en pipe/redirection, on reste 100% fidèle au contenu).
+    sys.stdout.write(s)
+    if sys.stdout.isatty() and s and not s.endswith("\n"):
+        sys.stdout.write("\n")
+
+
+def _stats_enc(src, b, nbytes):
+    nb64 = len("".join(b.split()))
+    print(f"# enc: {_wclines(src)} lines(wc) / {nbytes} bytes ({ENC}) -> {nb64} b64 chars",
+          file=sys.stderr)
+
+
+def _stats_dec(src, text, nbytes):
+    nb64 = len("".join(src.split()))
+    print(f"# dec: {nb64} b64 chars -> {_wclines(text)} lines(wc) / {nbytes} bytes ({ENC})",
+          file=sys.stderr)
+
+
+def _read_until_dot(label):
+    print(label + "  (fin = ligne '.' seule, ou Ctrl-D)")
+    lines = []
+    while True:
+        try:
+            line = input()
+        except EOFError:
+            break
+        if line.strip() == ".":
+            break
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _block(s):
+    print("-----")
+    print(s)
+    print("-----")
+
+
+def interactive():
+    while True:
+        print("\nb64 — base64 UTF-8   [e]ncoder  [d]écoder  [q]uitter")
+        try:
+            ch = input("> ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        if ch in ("", "q", "quit", "exit"):
+            return
+        if ch in ("e", "enc", "encode"):
+            b, _ = encode_text(_read_until_dot("Texte à encoder :"))
+            _block(b)
+        elif ch in ("d", "dec", "decode"):
+            try:
+                t, _ = decode_text(_read_until_dot("Base64 à décoder :"))
+                _block(t)
+            except Exception as ex:
+                print("ERREUR :", ex, file=sys.stderr)
+        else:
+            print("choix inconnu")
+
+
+def _add_input(p):
+    p.add_argument("-t", "--text", default=None, help="texte/base64 en ligne (fidèle, entre guillemets)")
+    p.add_argument("-f", "--file", default=None, help="lire depuis un fichier")
+
+
+def main():
+    if len(sys.argv) == 1:
+        interactive()
+        return
+    p = argparse.ArgumentParser(prog="b64",
+                                description="Encodeur/décodeur base64 UTF-8 (stdlib). Résultat sur stdout, stats (filet) sur stderr.")
+    sub = p.add_subparsers(dest="cmd")
+    e = sub.add_parser("enc", aliases=["encode"], help="encoder du texte en base64")
+    _add_input(e)
+    e.add_argument("-w", "--wrap", type=int, default=0,
+                   help="retour à la ligne tous les N car base64 (0 = une seule ligne)")
+    d = sub.add_parser("dec", aliases=["decode"], help="décoder du base64 en texte")
+    _add_input(d)
+    args = p.parse_args()
+    if args.cmd is None:
+        interactive()
+        return
+    try:
+        if args.cmd in ("enc", "encode"):
+            src = _get_input(args)
+            b, nb = encode_text(src, args.wrap)
+            sys.stdout.write(b if b.endswith("\n") else b + "\n")  # enc : 1 ligne + \n (inoffensif au décodage)
+            _stats_enc(src, b, nb)
+        else:
+            src = _get_input(args)
+            t, nb = decode_text(src)
+            _emit(t)  # dec : contenu EXACT (\n de confort seulement si terminal)
+            _stats_dec(src, t, nb)
+    except FileNotFoundError as ex:
+        print("ERREUR fichier :", ex, file=sys.stderr); sys.exit(1)
+    except binascii.Error as ex:
+        print("ERREUR base64 invalide :", ex, file=sys.stderr); sys.exit(1)
+    except ValueError as ex:
+        print("ERREUR :", ex, file=sys.stderr); sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
