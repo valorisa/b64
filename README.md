@@ -1,5 +1,7 @@
 # b64
 
+[![Pylint CI](https://github.com/valorisa/b64/actions/workflows/pylint.yml/badge.svg)](https://github.com/valorisa/b64/actions/workflows/pylint.yml)
+
 `b64` est un petit outil en ligne de commande pour **encoder** et **décoder** du texte en base64, en
 respectant l'encodage **UTF-8**. Il est écrit en Python, n'utilise **que la bibliothèque standard**
 (aucune installation de paquet supplémentaire), et tient dans un seul fichier.
