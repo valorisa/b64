@@ -87,7 +87,8 @@ def _stats_dec(src, text, nbytes):
 
 
 def _read_until_dot(label):
-    """Lit l'entrée utilisateur jusqu'à une ligne avec un point seul ou un EOF."""
+    """Lit l'entrée utilisateur jusqu'à une ligne avec un point seul, un EOF,
+    ou une interruption (Ctrl-C). Retourne None si l'utilisateur annule."""
     print(label + "  (fin = ligne '.' seule, ou Ctrl-D)")
     lines = []
     while True:
@@ -95,6 +96,9 @@ def _read_until_dot(label):
             line = input()
         except EOFError:
             break
+        except KeyboardInterrupt:
+            print("\nannulé")
+            return None
         if line.strip() == ".":
             break
         lines.append(line)
@@ -120,11 +124,17 @@ def interactive():
         if ch in ("", "q", "quit", "exit"):
             return
         if ch in ("e", "enc", "encode"):
-            b, _ = encode_text(_read_until_dot("Texte à encoder :"))
+            src = _read_until_dot("Texte à encoder :")
+            if src is None:
+                continue
+            b, _ = encode_text(src)
             _block(b)
         elif ch in ("d", "dec", "decode"):
+            src = _read_until_dot("Base64 à décoder :")
+            if src is None:
+                continue
             try:
-                t, _ = decode_text(_read_until_dot("Base64 à décoder :"))
+                t, _ = decode_text(src)
                 _block(t)
             except (binascii.Error, ValueError) as ex:
                 print("ERREUR :", ex, file=sys.stderr)
