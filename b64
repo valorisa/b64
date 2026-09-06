@@ -143,12 +143,13 @@ def interactive():
 
 
 def _add_input(p):
-    """Configure les options d'entrée communes (--text et --file)."""
-    p.add_argument(
+    """Configure les options d'entrée communes (--text et --file, exclusives)."""
+    g = p.add_mutually_exclusive_group()
+    g.add_argument(
         "-t", "--text", default=None,
         help="texte/base64 en ligne (fidèle, entre guillemets)"
     )
-    p.add_argument("-f", "--file", default=None, help="lire depuis un fichier")
+    g.add_argument("-f", "--file", default=None, help="lire depuis un fichier")
 
 
 def main():
